@@ -237,7 +237,7 @@ with tab3:
         series = df[c].astype(str).value_counts().head(topn)
         fig, ax = plt.subplots(figsize=(6,6))
         ax.pie(series.values, labels=series.index, autopct="%.1f%%", startangle=90)
-        ax.set_title(f"Répartition de "Catégorie"")
+        ax.set_title(f"Répartition de {c}")
         st.pyplot(fig)
 
 # ============= ONGLET 4 : LINEAIRE =============
