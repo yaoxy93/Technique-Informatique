@@ -211,9 +211,7 @@ with tab1:
             ax.legend()
             st.pyplot(fig)
 
-            st.caption("💡 Pour comparer **Superficie totale** vs **Superficie disponible**, choisis : "
-                       "Mode = *Comparatif (2 mesures)*, Catégorie = *Commune* (par ex.), Mesures = "
-                       "*Superficie totale* et *Superficie disponible*.")
+            
 
 # ============= ONGLET 2 : SCATTER =============
 with tab2:
