@@ -2,8 +2,8 @@
 # ----------------------------------------------------------------------
 # - Lecture robuste : auto-détection du séparateur ; , | \t + encodage + quotes (+ fallback)
 # - 4 onglets : Barres (agrégation OU comparatif 2 mesures), Nuage de point, Camembert, Linéaire
-# - "Top catégories/points" ajouté partout pour garder des graphiques lisibles
-# - Linéaire (simplifié) : X = n’importe quelle colonne, Y = 1..n colonnes numériques (pas de resampling/lissage)
+# - "Top catégories/points" partout + clés Streamlit uniques pour éviter les collisions
+# - Linéaire (simplifié) : X libre, Y = 1..n colonnes numériques (pas de resampling/lissage)
 
 import csv
 import re
@@ -19,7 +19,7 @@ st.set_page_config(page_title="CSV Dashboard (auto-séparateur)", page_icon="�
 # =========================
 
 def _read_try(file_like, **opts):
-    """Tente une lecture pandas et renvoie (df, err). Remet le pointeur au début si nécessaire."""
+    """Tente une lecture pandas et renvoie (df, err)."""
     if hasattr(file_like, "seek"):
         file_like.seek(0)
     try:
@@ -29,19 +29,18 @@ def _read_try(file_like, **opts):
         return pd.DataFrame(), e
 
 def _detect_sep_from_sample(sample: str) -> str:
-    """Devine le séparateur à partir d’un petit échantillon (Sniffer + comptage simple)."""
+    """Devine le séparateur via Sniffer puis fallback comptage simple."""
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=";,|\t,")
         return dialect.delimiter
     except Exception:
         counts = {sep: sample.count(sep) for sep in [",", ";", "\t", "|"]}
-        # En Europe, si match serré, on préfère le ';'
         if counts[";"] >= counts[","]:
             return ";"
         return max(counts, key=counts.get) or ";"
 
 def _read_text(file_like) -> str:
-    """Lit ~4KB pour détecter séparateur/encodage, renvoie du texte UTF-8/Latin-1."""
+    """Lit ~4KB pour la détection (UTF-8/Latin-1)."""
     if hasattr(file_like, "read"):
         pos = file_like.tell()
         chunk = file_like.read(4096)
@@ -61,7 +60,7 @@ def _read_text(file_like) -> str:
             return chunk.decode("latin-1", errors="ignore")
 
 def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Nettoie et déduplique les noms de colonnes (espaces multiples, retours-ligne, doublons)."""
+    """Nettoie et déduplique les noms de colonnes (espaces, retours-ligne, doublons)."""
     cols, seen = [], {}
     for c in df.columns:
         cc = str(c).strip().replace("\n", " ").replace("\r", " ")
@@ -76,21 +75,20 @@ def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _coerce_numeric_with_commas(df: pd.DataFrame) -> pd.DataFrame:
-    """Convertit en numérique les colonnes texte avec virgules décimales et espaces milliers."""
+    """Convertit en numérique les colonnes texte (gestion virgules décimales/espaces milliers)."""
     out = df.copy()
     for c in out.columns:
         if out[c].dtype == object:
             s = out[c].astype(str).str.strip()
-            # Évite les très longues chaînes (ex. GeoJSON/URL) pour ne pas convertir à tort
-            if s.str.len().median() > 50:
+            if s.str.len().median() > 50:  # évite les très longues chaînes (URL/GeoJSON)
                 continue
             s2 = (
                 s.str.replace("\u00a0", " ", regex=False)  # NBSP
-                 .str.replace(" ", "", regex=False)        # espaces milliers
+                 .str.replace(" ", "", regex=False)        # milliers
                  .str.replace(",", ".", regex=False)       # virgule -> point
             )
             conv = pd.to_numeric(s2, errors="coerce")
-            if conv.notna().mean() >= 0.7:                # conversion seulement si >=70% OK
+            if conv.notna().mean() >= 0.7:
                 out[c] = conv
     return out
 
@@ -116,7 +114,7 @@ def load_csv_robust(file_like, manual_sep: str | None = None) -> pd.DataFrame:
             return df
         last_err = err
 
-    # Retente avec des séparateurs alternatifs si besoin
+    # Retente avec d’autres séparateurs
     for alt in [",", ";", "\t", "|"]:
         if alt == sep:
             continue
@@ -131,11 +129,11 @@ def load_csv_robust(file_like, manual_sep: str | None = None) -> pd.DataFrame:
     return pd.DataFrame()
 
 def get_num_cols(df): 
-    """Liste les colonnes numériques détectées."""
+    """Retourne la liste des colonnes numériques."""
     return [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
 
 def get_cat_cols(df, max_uniques=100):
-    """Liste les colonnes catégorielles (non numériques) avec un nombre de modalités raisonnable."""
+    """Retourne la liste des colonnes catégorielles (non numériques) avec peu de modalités."""
     cats = []
     for c in df.columns:
         if not pd.api.types.is_numeric_dtype(df[c]) and df[c].nunique(dropna=True) <= max_uniques:
@@ -147,19 +145,18 @@ def get_cat_cols(df, max_uniques=100):
 # =========================
 
 st.title("📊 CSV Dashboard robuste")
-# Panneau latéral = import de fichier + option pour forcer le séparateur
+
 with st.sidebar:
     st.header("⚙️ Import")
-    manual_toggle = st.toggle("Forcer un séparateur", value=False)
+    manual_toggle = st.toggle("Forcer un séparateur", value=False, key="force_sep")
     manual_sep = None
     if manual_toggle:
-        manual_sep = st.radio("Séparateur", options=[";", ",", "\\t", "|"], index=0, horizontal=True)
+        manual_sep = st.radio("Séparateur", options=[";", ",", "\\t", "|"], index=0, horizontal=True, key="sep_choice")
         if manual_sep == "\\t":
             manual_sep = "\t"
     st.caption("Astuce : beaucoup de CSV européens utilisent `;`.")
 
-# Chargement du CSV
-file = st.file_uploader("Charge un fichier CSV", type=["csv"])
+file = st.file_uploader("Charge un fichier CSV", type=["csv"], key="uploader")
 if not file:
     st.info("➡️ Uploade un CSV pour commencer.")
     st.stop()
@@ -172,11 +169,9 @@ if df.empty:
 st.success("✅ CSV chargé !")
 st.write("Aperçu :", df.head(30))
 
-# Détection des types de colonnes
 num_cols = get_num_cols(df)
 cat_cols = get_cat_cols(df)
 
-# Petits indicateurs de base
 k1, k2, k3 = st.columns(3)
 k1.metric("Lignes", f"{len(df):,}".replace(",", " "))
 k2.metric("Colonnes", f"{df.shape[1]}")
@@ -190,88 +185,94 @@ tab1, tab2, tab3, tab4 = st.tabs(["📊 Barres", "🟢 Nuage de point", "🥧 Ca
 # ------------ ONGLET 1 : BARRES ------------
 with tab1:
     st.subheader("Barres")
-    st.caption("Comparer des mesures par catégorie. Utilise un 'Top N' pour garder le graphe lisible.")
-    mode = st.radio("Mode", ["Agrégation (1 mesure)", "Comparatif (2 mesures)"], horizontal=True)
+    st.caption("Comparer des mesures par catégorie. Utilise le 'Top N' pour rester lisible.")
+    mode = st.radio("Mode", ["Agrégation (1 mesure)", "Comparatif (2 mesures)"], horizontal=True, key="bar_mode")
 
-    # Messages d’aide selon le mode choisi
+    # --- Barres agrégées (1 mesure) ---
     if mode == "Agrégation (1 mesure)":
         if not num_cols or not cat_cols:
             st.info("Besoin d’au moins 1 numérique + 1 catégorielle.")
-    else:
-        if len(num_cols) < 2 or not cat_cols:
-            st.info("Besoin d’au moins 1 catégorielle + 2 numériques.")
+        else:
+            g = st.selectbox("Grouper par (catégoriel)", cat_cols, key="bar_g")
+            y = st.selectbox("Mesure (numérique)", num_cols, key="bar_y")
+            how = st.selectbox("Agrégation", ["sum", "mean", "median", "min", "max"], index=0, key="bar_how")
+            # On calcule d'abord la série agrégée pour fixer proprement les bornes du slider
+            serie = df.groupby(g, dropna=False)[y].agg(how).sort_values(ascending=False)
+            maxn = max(1, len(serie))
+            topn = st.slider("Top catégories à afficher", 3 if maxn >= 3 else 1, min(50, maxn), min(12, maxn),
+                             key="bar_topn_agg")
+            df_bar = serie.head(topn)
 
-    # --- Barres agrégées ---
-    if mode == "Agrégation (1 mesure)" and num_cols and cat_cols:
-        g = st.selectbox("Grouper par (catégoriel)", cat_cols, key="bar_g")
-        y = st.selectbox("Mesure (numérique)", num_cols, key="bar_y")
-        how = st.selectbox("Agrégation", ["sum", "mean", "median", "min", "max"], index=0, key="bar_how")
-        topn = st.slider("Top catégories à afficher", 3, 50, 12, key="bar_topn")
-        df_bar = df.groupby(g, dropna=False)[y].agg(how).sort_values(ascending=False).head(topn)
-
-        fig, ax = plt.subplots(figsize=(8,4))
-        ax.bar(df_bar.index.astype(str), df_bar.values)
-        ax.set_xlabel(g); ax.set_ylabel(y); ax.set_title(f"{how} de {y} par {g}")
-        plt.xticks(rotation=30, ha="right")
-        st.pyplot(fig)
+            fig, ax = plt.subplots(figsize=(8,4))
+            ax.bar(df_bar.index.astype(str), df_bar.values)
+            ax.set_xlabel(g); ax.set_ylabel(y); ax.set_title(f"{how} de {y} par {g} (Top {topn})")
+            plt.xticks(rotation=30, ha="right")
+            st.pyplot(fig)
 
     # --- Barres comparatives (2 mesures) ---
-    if mode == "Comparatif (2 mesures)" and len(num_cols) >= 2 and cat_cols:
-        g = st.selectbox("Catégorie (X)", cat_cols, key="cmp_g")
-        y1 = st.selectbox("Mesure 1", num_cols, key="cmp_y1")
-        y2 = st.selectbox("Mesure 2", [c for c in num_cols if c != y1], key="cmp_y2")
-        how = st.selectbox("Agrégation", ["sum", "mean", "median", "min", "max"], index=0, key="cmp_how")
+    if mode == "Comparatif (2 mesures)":
+        if len(num_cols) < 2 or not cat_cols:
+            st.info("Besoin d’au moins 1 catégorielle + 2 numériques.")
+        else:
+            g = st.selectbox("Catégorie (X)", cat_cols, key="cmp_g")
+            y1 = st.selectbox("Mesure 1", num_cols, key="cmp_y1")
+            y2 = st.selectbox("Mesure 2", [c for c in num_cols if c != y1], key="cmp_y2")
+            how = st.selectbox("Agrégation", ["sum", "mean", "median", "min", "max"], index=0, key="cmp_how")
 
-        base = df.groupby(g, dropna=False)[[y1, y2]].agg(how)
-        # Tri par la valeur max entre y1 et y2 (catégories les plus "importantes" en tête)
-        base["__tri__"] = base[[y1, y2]].max(axis=1)
-        base = base.sort_values("__tri__", ascending=False).drop(columns="__tri__")
-        topn = st.slider("Top catégories à afficher", 3, min(50, len(base)), min(12, len(base)))
-        base = base.head(topn)
+            base = df.groupby(g, dropna=False)[[y1, y2]].agg(how)
+            base["__tri__"] = base[[y1, y2]].max(axis=1)
+            base = base.sort_values("__tri__", ascending=False).drop(columns="__tri__")
+            maxn = max(1, len(base))
+            topn = st.slider("Top catégories à afficher", 3 if maxn >= 3 else 1, min(50, maxn), min(12, maxn),
+                             key="bar_topn_cmp")
+            base = base.head(topn)
 
-        # Barres côte-à-côte
-        idx = np.arange(len(base))
-        width = 0.42
-        fig, ax = plt.subplots(figsize=(10,5))
-        ax.bar(idx - width/2, base[y1].values, width, label=y1)
-        ax.bar(idx + width/2, base[y2].values, width, label=y2)
-        ax.set_xticks(idx, base.index.astype(str), rotation=30, ha="right")
-        ax.set_xlabel(g); ax.set_ylabel("Valeur"); ax.set_title(f"{how} de {y1} & {y2} par {g}")
-        ax.legend()
-        st.pyplot(fig)
+            idx = np.arange(len(base))
+            width = 0.42
+            fig, ax = plt.subplots(figsize=(10,5))
+            ax.bar(idx - width/2, base[y1].values, width, label=y1)
+            ax.bar(idx + width/2, base[y2].values, width, label=y2)
+            ax.set_xticks(idx, base.index.astype(str), rotation=30, ha="right")
+            ax.set_xlabel(g); ax.set_ylabel("Valeur"); ax.set_title(f"{how} de {y1} & {y2} par {g} (Top {topn})")
+            ax.legend()
+            st.pyplot(fig)
 
-        
+            st.caption("💡 Ex. utile : **Superficie totale** vs **Superficie disponible** par **Commune**.")
 
 # ------------ ONGLET 2 : NUAGE DE POINT ------------
 with tab2:
     st.subheader("Nuage de point (X et Y numériques)")
-    st.caption("Visualiser la relation entre deux variables numériques. Limite aux 'Top N' points (triés sur Y).")
+    st.caption("Visualiser la relation entre deux variables. Le 'Top N' conserve les points les plus marquants (triés sur Y).")
     if len(num_cols) < 2:
         st.info("Besoin d’au moins 2 colonnes numériques.")
     else:
         x = st.selectbox("Axe X (num.)", num_cols, key="sc_x")
         y = st.selectbox("Axe Y (num.)", [c for c in num_cols if c != x], key="sc_y")
         d = df[[x, y]].dropna()
-        # Top N points selon Y décroissant (plus marquants en premier)
-        topn = st.slider("Top points à afficher", 10, min(500, len(d)), min(100, len(d)))
+        maxn = max(1, len(d))
+        # bornes solides même si le dataset est très petit
+        minv = 10 if maxn >= 10 else 1
+        defaultv = min(100, maxn)
+        topn = st.slider("Top points à afficher", minv, min(500, maxn), defaultv, key="sc_topn")
         d = d.sort_values(y, ascending=False).head(topn)
 
         fig, ax = plt.subplots(figsize=(7,4))
         ax.scatter(d[x], d[y], alpha=0.85)
-        ax.set_xlabel(x); ax.set_ylabel(y); ax.set_title(f"{y} vs {x}")
+        ax.set_xlabel(x); ax.set_ylabel(y); ax.set_title(f"{y} vs {x} (Top {topn})")
         st.pyplot(fig)
 
 # ------------ ONGLET 3 : CAMEMBERT (comptage simple) ------------
 with tab3:
     st.subheader("Répartition (camembert)")
-    st.caption("Choisir une colonne catégorielle. Affiche la répartition (comptage) des 'Top N' modalités.")
+    st.caption("Choisir une colonne catégorielle et afficher les 'Top N' modalités.")
     if not cat_cols:
         st.info("Besoin d’au moins 1 catégorielle.")
     else:
         c = st.selectbox("Catégorie", cat_cols, key="pie_c")
         series = df[c].astype(str).value_counts()
-        # Top N modalités les plus fréquentes
-        topn = st.slider("Top catégories à afficher", 3, min(30, len(series)), min(12, len(series)))
+        maxn = max(1, len(series))
+        topn = st.slider("Top catégories à afficher", 3 if maxn >= 3 else 1, min(30, maxn), min(12, maxn),
+                         key="pie_topn")
         series = series.head(topn)
 
         fig, ax = plt.subplots(figsize=(6,6))
@@ -282,8 +283,7 @@ with tab3:
 # ------------ ONGLET 4 : LINEAIRE (simplifié) ------------
 with tab4:
     st.subheader("Courbes (linéaire)")
-    st.caption("Trace une ou plusieurs séries numériques Y en fonction de X. "
-               "Le 'Top N' garde les X les plus significatifs.")
+    st.caption("Trace une ou plusieurs séries numériques Y en fonction de X. 'Top N' par catégories ou par points selon le type de X.")
     xcol = st.selectbox("Axe X", df.columns, key="ln_x")
     ycols = st.multiselect("Séries Y (numériques)", num_cols, default=num_cols[:1], key="ln_y")
 
@@ -292,34 +292,38 @@ with tab4:
     else:
         d = df[[xcol] + ycols].dropna()
 
-        # Si X est catégoriel/texte : on agrège par X (somme) puis on prend les Top N catégories
         if not pd.api.types.is_numeric_dtype(d[xcol]):
+            # X catégoriel/texte : on agrège (somme) puis Top N catégories selon la valeur max des séries
             agg = d.groupby(xcol, dropna=False)[ycols].sum()
-            # Score pour trier les catégories = maximum parmi les Y sélectionnés
             score = agg[ycols].max(axis=1)
             agg = agg.loc[score.sort_values(ascending=False).index]
-            topn = st.slider("Top catégories à afficher", 3, min(50, len(agg)), min(12, len(agg)))
+            maxn = max(1, len(agg))
+            topn = st.slider("Top catégories à afficher", 3 if maxn >= 3 else 1, min(50, maxn), min(12, maxn),
+                             key="ln_topn_cat")
             agg = agg.head(topn)
 
             fig, ax = plt.subplots(figsize=(9,4))
             for c in ycols:
                 ax.plot(agg.index.astype(str), agg[c], label=c)
-            ax.set_xlabel(xcol); ax.set_ylabel("Valeur"); ax.set_title("Courbe(s) linéaire(s) par catégorie")
+            ax.set_xlabel(xcol); ax.set_ylabel("Valeur"); ax.set_title(f"Courbe(s) par {xcol} (Top {topn})")
             plt.xticks(rotation=30, ha="right")
             ax.legend()
             st.pyplot(fig)
 
         else:
-            # X numérique : on trie par X croissant, puis on garde Top N points les plus "grands" (score = max des Y)
+            # X numérique : on trie par X, on sélectionne Top N points les plus "grands" (score = max des Y)
             d = d.sort_values(xcol)
             score = d[ycols].max(axis=1)
             d = d.loc[score.sort_values(ascending=False).index]
-            topn = st.slider("Top points à afficher", 10, min(500, len(d)), min(200, len(d)))
+            maxn = max(1, len(d))
+            minv = 10 if maxn >= 10 else 1
+            defaultv = min(200, maxn)
+            topn = st.slider("Top points à afficher", minv, min(500, maxn), defaultv, key="ln_topn_points")
             d = d.head(topn).sort_values(xcol)  # ré-ordonne l’affichage sur X
 
             fig, ax = plt.subplots(figsize=(9,4))
             for c in ycols:
                 ax.plot(d[xcol], d[c], label=c)
-            ax.set_xlabel(xcol); ax.set_ylabel("Valeur"); ax.set_title("Courbe(s) linéaire(s)")
+            ax.set_xlabel(xcol); ax.set_ylabel("Valeur"); ax.set_title(f"Courbe(s) linéaire(s) (Top {topn})")
             ax.legend()
             st.pyplot(fig)
