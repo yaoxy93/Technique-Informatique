@@ -131,7 +131,7 @@ def get_cat_cols(df, max_uniques=100):
 
 # ============= UI IMPORT =============
 
-st.title("📊 CSV Dashboard")
+st.title("📊 CSV Dashboard robuste")
 with st.sidebar:
     st.header("⚙️ Import")
     manual_toggle = st.toggle("Forcer un séparateur", value=False)
@@ -164,7 +164,7 @@ k2.metric("Colonnes", f"{df.shape[1]}")
 k3.metric("Numériques", f"{len(num_cols)}")
 
 # ============= ONGLET 1 : BARRES (agrégation ou comparatif) =============
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Barres", "🟢 Nuage de points", "🥧 Camembert", "📈 Linéaire"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Barres", "🟢 Scatter", "🥧 Camembert", "📈 Linéaire"])
 
 with tab1:
     st.subheader("Barres")
@@ -211,9 +211,11 @@ with tab1:
             ax.legend()
             st.pyplot(fig)
 
-            
+            st.caption("💡 Pour comparer **Superficie totale** vs **Superficie disponible**, choisis : "
+                       "Mode = *Comparatif (2 mesures)*, Catégorie = *Commune* (par ex.), Mesures = "
+                       "*Superficie totale* et *Superficie disponible*.")
 
-# ============= ONGLET 2 : Nuage de points =============
+# ============= ONGLET 2 : SCATTER =============
 with tab2:
     st.subheader("Nuage de points (X et Y numériques)")
     if len(num_cols) < 2:
@@ -233,6 +235,7 @@ with tab3:
         st.info("Besoin d’au moins 1 catégorielle.")
     else:
         c = st.selectbox("Catégorie", cat_cols, key="pie_c")
+        mesure_mode = st.radio("Mesure", ["Comptage (count)"] + num_cols, horizontal=True)
         topn = st.slider("Top catégories à afficher", 3, 20, 12)
         series = df[c].astype(str).value_counts().head(topn)
         fig, ax = plt.subplots(figsize=(6,6))
@@ -243,47 +246,26 @@ with tab3:
 # ============= ONGLET 4 : LINEAIRE =============
 with tab4:
     st.subheader("Courbes (linéaire)")
-    # choix X (peut être date/numérique/texte) et Y (une ou plusieurs colonnes numériques)
+    
     xcol = st.selectbox("Axe X", df.columns, key="ln_x")
-    ycols = st.multiselect("Séries (Y)", num_cols, default=num_cols[:1], key="ln_y")
+    ycols = st.multiselect("Séries Y", num_cols, default=num_cols[:1], key="ln_y")
+
     if not ycols:
         st.info("Choisis au moins une série Y.")
     else:
-        # tentative de conversion datetime si possible
-        x = df[xcol]
-        x_dt = pd.to_datetime(x, errors="coerce", dayfirst=True)
-        use_dt = x_dt.notna().mean() > 0.7  # si >=70% parse OK, on considère datetime
+        d = df[[xcol] + ycols].dropna()
 
-        if use_dt:
-            # options de resampling
-            freq = st.selectbox("Regroupement temporel (resample)", ["Aucun", "Jour", "Semaine", "Mois", "Trimestre", "Année"], index=0)
-            d = df.copy()
-            d["_x"] = x_dt
-            d = d.dropna(subset=["_x"])
-            d = d.sort_values("_x").set_index("_x")
-            if freq != "Aucun":
-                fmap = {"Jour":"D","Semaine":"W","Mois":"M","Trimestre":"Q","Année":"Y"}
-                d = d[ycols].resample(fmap[freq]).mean()
-                to_plot = d
-            else:
-                to_plot = d[ycols]
+        try:
+            d = d.sort_values(xcol)
+        except Exception:
+            pass
 
-            for c in ycols:
-                ax.plot(to_plot.index, to_plot[c], label=c)
-            ax.set_xlabel("Temps"); ax.set_ylabel("Valeur"); ax.set_title("Courbe(s) temporelle(s)")
-            ax.legend()
-            st.pyplot(fig)
-        else:
-            # X non temporel : on trie par X pour une courbe lisible
-            d = df[[xcol] + ycols].dropna()
-            try:
-                d = d.sort_values(xcol)
-            except Exception:
-                pass
-            fig, ax = plt.subplots(figsize=(9,4))
-            for c in ycols:
-                ax.plot(d[xcol].astype(str), d[c], label=c)
-            ax.set_xlabel(xcol); ax.set_ylabel("Valeur"); ax.set_title("Courbe(s)")
-            plt.xticks(rotation=30, ha="right")
-            ax.legend()
-            st.pyplot(fig)
+        fig, ax = plt.subplots(figsize=(9, 4))
+        for c in ycols:
+            ax.plot(d[xcol].astype(str), d[c], label=c)
+        ax.set_xlabel(xcol)
+        ax.set_ylabel("Valeur")
+        ax.set_title("Courbe(s) linéaire(s)")
+        plt.xticks(rotation=30, ha="right")
+        ax.legend()
+        st.pyplot(fig)
