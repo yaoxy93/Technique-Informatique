@@ -144,7 +144,7 @@ def get_cat_cols(df, max_uniques=100):
 #         UI IMPORT
 # =========================
 
-st.title("📊 CSV Dashboard robuste")
+st.title("📊 CSV Dashboard")
 
 with st.sidebar:
     st.header("⚙️ Import")
