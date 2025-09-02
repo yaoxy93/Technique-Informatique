@@ -237,7 +237,7 @@ with tab1:
             ax.legend()
             st.pyplot(fig)
 
-            st.caption("💡 Ex. utile : **Superficie totale** vs **Superficie disponible** par **Commune**.")
+            
 
 # ------------ ONGLET 2 : NUAGE DE POINT ------------
 with tab2:
