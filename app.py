@@ -233,13 +233,7 @@ with tab3:
         st.info("Besoin d’au moins 1 catégorielle.")
     else:
         c = st.selectbox("Catégorie", cat_cols, key="pie_c")
-        mesure_mode = st.radio("Mesure", ["Comptage (count)"] + num_cols, horizontal=True)
         topn = st.slider("Top catégories à afficher", 3, 20, 12)
-        if mesure_mode == "Comptage (count)":
-            series = df[c].astype(str).value_counts().head(topn)
-        else:
-            series = df.groupby(c, dropna=False)[mesure_mode].sum().sort_values(ascending=False).head(topn)
-            series.index = series.index.astype(str)
         fig, ax = plt.subplots(figsize=(6,6))
         ax.pie(series.values, labels=series.index, autopct="%.1f%%", startangle=90)
         ax.set_title(f"Répartition de {c} — {mesure_mode if mesure_mode!='Comptage (count)' else 'count'}")
@@ -272,11 +266,7 @@ with tab4:
                 to_plot = d
             else:
                 to_plot = d[ycols]
-            # lissage optionnel
-            smooth = st.checkbox("Moyenne glissante (7 points)", value=False)
-            if smooth and len(to_plot) >= 7:
-                to_plot = to_plot.rolling(7, min_periods=1).mean()
-            fig, ax = plt.subplots(figsize=(9,4))
+
             for c in ycols:
                 ax.plot(to_plot.index, to_plot[c], label=c)
             ax.set_xlabel("Temps"); ax.set_ylabel("Valeur"); ax.set_title("Courbe(s) temporelle(s)")
