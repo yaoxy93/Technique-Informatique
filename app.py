@@ -131,7 +131,7 @@ def get_cat_cols(df, max_uniques=100):
 
 # ============= UI IMPORT =============
 
-st.title("📊 CSV Dashboard robuste")
+st.title("📊 CSV Dashboard")
 with st.sidebar:
     st.header("⚙️ Import")
     manual_toggle = st.toggle("Forcer un séparateur", value=False)
@@ -164,7 +164,7 @@ k2.metric("Colonnes", f"{df.shape[1]}")
 k3.metric("Numériques", f"{len(num_cols)}")
 
 # ============= ONGLET 1 : BARRES (agrégation ou comparatif) =============
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Barres", "🟢 Scatter", "🥧 Camembert", "📈 Linéaire"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Barres", "🟢 Nuage de points", "🥧 Camembert", "📈 Linéaire"])
 
 with tab1:
     st.subheader("Barres")
@@ -213,7 +213,7 @@ with tab1:
 
             
 
-# ============= ONGLET 2 : SCATTER =============
+# ============= ONGLET 2 : Nuage de points =============
 with tab2:
     st.subheader("Nuage de points (X et Y numériques)")
     if len(num_cols) < 2:
